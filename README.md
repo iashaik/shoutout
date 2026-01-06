@@ -16,6 +16,11 @@ A robust Frappe API client for Flutter with built-in retry logic, fault toleranc
 ✅ **Network Monitoring** - Real-time connectivity detection and quality tracking
 ✅ **Cache Management** - Flexible caching with TTL for offline support
 ✅ **Clean Architecture** - Failure pattern with Either/Result types
+✅ **File Upload/Download** - Progress tracking, pause/resume, batch uploads
+✅ **Query Builder** - Fluent API for complex queries with filters and aggregations
+✅ **Real-time Support** - WebSocket client for live updates and events
+✅ **Batch Operations** - Bulk create, update, delete with parallel execution
+✅ **Mock Client** - Complete testing support with in-memory data storage
 
 ## Installation
 
@@ -283,6 +288,78 @@ class UserRepository implements IRepository<User, String> {
     // Implementation
   }
 }
+```
+
+### File Upload/Download
+```dart
+final fileManager = FileManager(dio: client.dio);
+
+// Upload with progress
+final result = await fileManager.uploadFile(
+  url: 'https://example.com/upload',
+  file: File('/path/to/file.jpg'),
+  fileName: 'profile.jpg',
+  onProgress: (sent, total) {
+    print('Progress: ${(sent / total * 100).toStringAsFixed(1)}%');
+  },
+);
+```
+
+### Query Builder
+```dart
+final query = QueryBuilder('User')
+  .where('enabled', 1)
+  .whereLike('email', '%@example.com')
+  .select(['name', 'email', 'full_name'])
+  .orderBy('creation', descending: true)
+  .limit(20);
+
+final params = query.build();
+final users = await client.getList('User', ...params);
+```
+
+### Real-time Support
+```dart
+final realtimeClient = RealtimeClient(
+  baseUrl: 'https://yoursite.frappe.cloud',
+  authToken: 'your_token',
+);
+
+await realtimeClient.connect();
+
+// Subscribe to User updates
+realtimeClient.subscribe('User').listen((event) {
+  print('User ${event.type}: ${event.docname}');
+});
+```
+
+### Batch Operations
+```dart
+final batchOps = BatchOperations(client: client);
+
+final result = await batchOps.batchCreate(
+  doctype: 'User',
+  documents: [/* list of user data */],
+  batchSize: 50,
+);
+
+print('Success: ${result.successCount}/${result.totalCount}');
+```
+
+### Mock Client for Testing
+```dart
+final mockClient = MockClientBuilder()
+  .withNetworkDelay(true, delay: Duration(milliseconds: 50))
+  .withSeedData('User', [
+    {'name': 'user1', 'email': 'user1@example.com'},
+  ])
+  .build();
+
+// Use in tests
+final result = await mockClient.getDocument(
+  doctype: 'User',
+  name: 'user1',
+);
 ```
 
 See [USAGE_GUIDE.md](USAGE_GUIDE.md) for comprehensive examples and [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for upgrading from v0.0.1.

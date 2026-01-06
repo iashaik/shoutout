@@ -31,5 +31,21 @@ export 'src/cache/cache_manager.dart';
 export 'src/interfaces/i_repository.dart';
 export 'src/interfaces/i_auth_service.dart';
 
+// File Management
+export 'src/file/file_transfer.dart';
+export 'src/file/file_manager.dart';
+
+// Query Builder
+export 'src/query/query_builder.dart';
+
+// Real-time Support
+export 'src/realtime/realtime_client.dart';
+
+// Batch Operations
+export 'src/batch/batch_operations.dart';
+
+// Testing/Mocking
+export 'src/testing/mock_client.dart';
+
 // External dependencies (for convenience)
 export 'package:dartz/dartz.dart' show Either, Left, Right;

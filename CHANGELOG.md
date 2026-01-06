@@ -1,6 +1,8 @@
-## 0.0.2 (Unreleased)
+## 0.0.3
 
-### 🎉 Major Features: Offline-First Architecture
+### 🎉 Major Features: Complete Offline-First & Advanced Features
+
+This release transforms Shoutout into a comprehensive, production-ready Frappe API client with offline-first architecture, file management, real-time updates, batch operations, and complete testing support.
 
 **New Components:**
 - **Failure Pattern (Clean Architecture)**
@@ -50,12 +52,61 @@
   - `IMFAAuthService` - Multi-factor authentication
   - `IFrappeAuthService` - Frappe-specific authentication
 
+- **File Upload/Download Manager**
+  - Progress tracking with `FileTransfer` model
+  - Pause/resume/cancel functionality
+  - Upload multiple files with `uploadMultiple()`
+  - Download files with caching support
+  - Automatic retry on failure
+  - Transfer history and statistics
+  - Works seamlessly with ShoutoutClient/Dio
+
+- **Query Builder**
+  - Fluent API for building complex Frappe queries
+  - Type-safe filter operations (equals, like, in, between, etc.)
+  - Support for ordering, pagination, and field selection
+  - `FilterGroup` for complex AND/OR conditions
+  - `AdvancedQueryBuilder` with aggregations (count, sum, avg, min, max)
+  - Raw filter support for custom queries
+  - Clone and reset capabilities
+
+- **Real-time Support**
+  - WebSocket client for Frappe real-time updates
+  - Subscribe to doctype changes (insert, update, delete)
+  - Subscribe to specific document updates
+  - Custom event subscription and emission
+  - Automatic reconnection with exponential backoff
+  - Heartbeat monitoring
+  - Connection state streams
+  - Authentication support
+
+- **Batch Operations**
+  - Batch create, update, delete operations
+  - Configurable batch sizes for optimal performance
+  - Parallel execution within batches
+  - `batchUpsert()` for create-or-update logic
+  - Comprehensive error handling with `BatchResult`
+  - Success rate tracking and statistics
+  - Stop-on-error or continue-on-error modes
+  - Custom batch operations with `batchExecute()`
+
+- **Mock Client for Testing**
+  - Complete mock implementation of ShoutoutClient
+  - In-memory data storage
+  - Seed data support
+  - Simulated network delays
+  - Random failure simulation
+  - Call count tracking
+  - `MockClientBuilder` for easy configuration
+  - Perfect for unit and widget testing
+
 **New Dependencies:**
 - `dartz: ^0.10.1` - Functional programming (Either/Result pattern)
 - `equatable: ^2.0.7` - Equality comparison for Failures
 - `hive: ^2.2.3` - Local storage for offline queue and cache
 - `hive_flutter: ^1.1.0` - Hive Flutter integration
 - `path_provider: ^2.1.5` - Path access for storage
+- `web_socket_channel: ^3.0.1` - WebSocket support for real-time features
 - `hive_generator: ^2.0.1` (dev) - Code generation for Hive adapters
 
 **Documentation:**
