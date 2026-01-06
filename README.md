@@ -12,6 +12,10 @@ A robust Frappe API client for Flutter with built-in retry logic, fault toleranc
 ✅ **Detailed Logging** - Pretty network logs in debug mode
 ✅ **Custom Exceptions** - Specific exception types for better error handling
 ✅ **Highly Configurable** - Customize timeouts, retries, and more
+✅ **Offline-First** - Request queuing and automatic sync when online
+✅ **Network Monitoring** - Real-time connectivity detection and quality tracking
+✅ **Cache Management** - Flexible caching with TTL for offline support
+✅ **Clean Architecture** - Failure pattern with Either/Result types
 
 ## Installation
 
@@ -212,6 +216,84 @@ Requests are blocked if no internet connection is detected, preventing unnecessa
 - Automatic handling of Frappe response format (`data` and `message` fields)
 - Support for Frappe API Key and Bearer Token authentication
 - Proper parsing of Frappe error responses
+
+## Offline-First Architecture (v0.0.2+)
+
+Shoutout provides comprehensive offline-first capabilities:
+
+### Network Monitoring
+```dart
+final networkMonitor = NetworkMonitor();
+
+networkMonitor.statusStream.listen((status) {
+  if (status.isConnected) {
+    print('Online: ${status.connectionType}');
+  }
+});
+```
+
+### Cache Manager
+```dart
+final cacheManager = CacheManager();
+await cacheManager.initialize();
+
+final users = await cacheManager.getOrFetch(
+  'users',
+  () => client.getList('User'),
+  expiresIn: Duration(hours: 1),
+);
+```
+
+### Offline Queue
+```dart
+final queueManager = OfflineQueueManager(dio: client.dio);
+await queueManager.initialize();
+
+// Automatically queues when offline and syncs when online
+```
+
+### Clean Architecture with Failures
+```dart
+Future<Either<Failure, List<User>>> getUsers() async {
+  try {
+    final response = await client.getList('User');
+    final users = (response as List)
+        .map((json) => User.fromJson(json))
+        .toList();
+    return Right(users);
+  } on ShoutoutException catch (e) {
+    return Left(e.toFailure());
+  }
+}
+
+// In BLoC
+result.fold(
+  (failure) => emit(UserError(failure.message)),
+  (users) => emit(UserLoaded(users)),
+);
+```
+
+### Repository Interfaces
+```dart
+class UserRepository implements IRepository<User, String> {
+  final ShoutoutClient client;
+
+  @override
+  Future<Either<Failure, User>> getById(String id) async {
+    // Implementation
+  }
+}
+```
+
+See [USAGE_GUIDE.md](USAGE_GUIDE.md) for comprehensive examples and [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for upgrading from v0.0.1.
+
+## Documentation
+
+- **[README.md](README.md)** - Quick start and API reference
+- **[USAGE_GUIDE.md](USAGE_GUIDE.md)** - Comprehensive examples for 8+ app types
+- **[MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)** - Upgrade guide from v0.0.1
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history
+- **[example/](example/)** - Working code examples
 
 ## License
 

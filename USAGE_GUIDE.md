@@ -1714,3 +1714,225 @@ class DebouncedSearch {
 ---
 
 This comprehensive guide covers multiple real-world scenarios and patterns for using Shoutout with Frappe/ERPNext! 🚀
+
+## 9. Offline-First Architecture 📱
+
+Shoutout v0.0.2+ includes comprehensive offline-first capabilities for mobile apps.
+
+### Key Features
+
+- **Network Monitoring**: Real-time connectivity detection with quality estimation
+- **Offline Queue**: Automatic request queuing when offline
+- **Cache Management**: Flexible caching with TTL support
+- **Clean Architecture**: Failure pattern for error handling
+- **Either/Result**: Functional error handling with dartz
+
+### Network Monitoring Example
+
+```dart
+class NetworkAwareWidget extends StatefulWidget {
+  @override
+  _NetworkAwareWidgetState createState() => _NetworkAwareWidgetState();
+}
+
+class _NetworkAwareWidgetState extends State<NetworkAwareWidget> {
+  final networkMonitor = NetworkMonitor();
+  NetworkStatus? currentStatus;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Listen to network changes
+    networkMonitor.statusStream.listen((status) {
+      setState(() {
+        currentStatus = status;
+      });
+
+      if (status.isConnected) {
+        print('Online: ${status.connectionType}');
+      } else {
+        print('Offline - queue requests');
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        if (currentStatus != null)
+          ConnectionStatusBanner(status: currentStatus!),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    networkMonitor.dispose();
+    super.dispose();
+  }
+}
+```
+
+### Offline Queue Manager Example
+
+```dart
+class DataSyncService {
+  final ShoutoutClient client;
+  late OfflineQueueManager queueManager;
+
+  Future<void> initialize() async {
+    queueManager = OfflineQueueManager(
+      dio: client.dio,
+      config: OfflineQueueConfig(
+        autoSync: true,
+        syncInterval: Duration(seconds: 30),
+      ),
+    );
+    await queueManager.initialize();
+  }
+
+  Future<void> createTodoOffline(Map<String, dynamic> data) async {
+    final request = QueuedRequest(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      method: 'POST',
+      url: '${client.config.baseUrl}/api/resource/ToDo',
+      data: data,
+      createdAt: DateTime.now(),
+      priority: 10,
+    );
+    await queueManager.enqueue(request);
+  }
+}
+```
+
+### Cache Manager Example
+
+```dart
+class CachedDataService {
+  final ShoutoutClient client;
+  final CacheManager cacheManager = CacheManager();
+
+  Future<void> initialize() async {
+    await cacheManager.initialize();
+  }
+
+  // Cache-first strategy
+  Future<List<dynamic>> getUsers({bool forceRefresh = false}) async {
+    return await cacheManager.getOrFetch(
+      'users_list',
+      () => client.getList('User', fields: ['name', 'email']),
+      expiresIn: Duration(minutes: 30),
+      forceRefresh: forceRefresh,
+    );
+  }
+}
+```
+
+### Using Failures (Clean Architecture)
+
+```dart
+class UserRepository {
+  final ShoutoutClient client;
+
+  Future<Either<Failure, List<User>>> getUsers() async {
+    try {
+      final response = await client.getList('User');
+      final users = (response as List)
+          .map((json) => User.fromJson(json))
+          .toList();
+      return Right(users);
+    } on ShoutoutException catch (e) {
+      return Left(e.toFailure());
+    } catch (e) {
+      return Left(UnknownFailure(message: e.toString()));
+    }
+  }
+}
+
+// In BLoC
+class UserBloc extends Bloc<UserEvent, UserState> {
+  Future<void> _onLoadUsers(LoadUsers event, Emitter<UserState> emit) async {
+    emit(UserLoading());
+
+    final result = await repository.getUsers();
+
+    result.fold(
+      (failure) => emit(UserError(message: failure.message)),
+      (users) => emit(UserLoaded(users: users)),
+    );
+  }
+}
+```
+
+### Complete Offline-First Example
+
+```dart
+class TodoService {
+  final ShoutoutClient client;
+  final CacheManager cache;
+  final OfflineQueueManager queue;
+  final NetworkMonitor network;
+
+  Future<Either<Failure, List<Todo>>> getTodos() async {
+    try {
+      // Try cache first (works offline)
+      final cached = await cache.get<List<Todo>>('todos');
+
+      if (network.isDisconnected && cached != null) {
+        return Right(cached);
+      }
+
+      // Fetch fresh data if online
+      if (network.isConnected) {
+        final response = await client.getList('ToDo');
+        final todos = (response as List)
+            .map((json) => Todo.fromJson(json))
+            .toList();
+
+        await cache.put('todos', todos, expiresIn: Duration(minutes: 15));
+        return Right(todos);
+      }
+
+      // Offline without cache
+      return Left(NetworkFailure());
+    } on ShoutoutException catch (e) {
+      return Left(e.toFailure());
+    }
+  }
+
+  Future<Either<Failure, void>> createTodo(Todo todo) async {
+    try {
+      if (network.isConnected) {
+        await client.createDoc('ToDo', data: todo.toJson());
+      } else {
+        // Queue for sync when online
+        await queue.enqueueFromOptions(...);
+      }
+
+      await cache.delete('todos'); // Invalidate cache
+      return const Right(null);
+    } on ShoutoutException catch (e) {
+      return Left(e.toFailure());
+    }
+  }
+}
+```
+
+### Best Practices
+
+1. **Always use Either<Failure, T>** for repository methods
+2. **Cache aggressively** for offline support
+3. **Queue write operations** when offline
+4. **Listen to network changes** for automatic sync
+5. **Show offline indicators** to users
+6. **Invalidate cache** after writes
+7. **Set appropriate TTL** for different data types
+8. **Handle errors gracefully** with specific Failure types
+9. **Test offline scenarios** thoroughly
+10. **Monitor queue size** and handle failures
+
+---
+
+This comprehensive guide now covers real-world scenarios, advanced patterns, and complete offline-first architecture for using Shoutout with Frappe/ERPNext! 🚀
