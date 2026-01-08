@@ -31,6 +31,11 @@ export 'src/cache/cache_manager.dart';
 export 'src/interfaces/i_repository.dart';
 export 'src/interfaces/i_auth_service.dart';
 
+// Authentication
+export 'src/auth/frappe_auth_service.dart';
+export 'src/auth/local_auth_service.dart';
+export 'src/auth/secure_auth_service.dart';
+
 // File Management
 export 'src/file/file_transfer.dart';
 export 'src/file/file_manager.dart';

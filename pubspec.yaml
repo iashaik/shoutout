@@ -45,6 +45,9 @@ dependencies:
   # WebSocket support for real-time
   web_socket_channel: ^3.0.1
 
+  # Biometric/Local Authentication
+  local_auth: ^2.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
