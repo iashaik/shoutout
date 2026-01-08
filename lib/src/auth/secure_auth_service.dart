@@ -58,12 +58,14 @@ class SecureAuthService implements IFrappeAuthService, ISocialAuthService {
     required ShoutoutClient client,
     FlutterSecureStorage? secureStorage,
     SocialLoginConfig? socialConfig,
+    OtpAuthConfig? otpConfig,
     LocalAuthConfig? localAuthConfig,
   })  : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
         _frappeAuth = FrappeAuthService(
           client: client,
           secureStorage: secureStorage,
           socialConfig: socialConfig,
+          otpConfig: otpConfig,
         ),
         _localAuth = LocalAuthService(
           secureStorage: secureStorage,
@@ -217,6 +219,56 @@ class SecureAuthService implements IFrappeAuthService, ISocialAuthService {
   Future<void> setRequireAuthOnResume(bool require) async {
     await _localAuth.setRequireAuthOnResume(require);
   }
+
+  // ==================== Two-Factor Authentication ====================
+
+  /// Login with password, handling 2FA if required
+  ///
+  /// Returns [LoginResult] which indicates whether login is complete
+  /// or if 2FA verification is needed.
+  Future<Either<Failure, LoginResult>> loginWithPasswordAndHandle2FA({
+    required String email,
+    required String password,
+  }) async {
+    final result = await _frappeAuth.loginWithPasswordAndHandle2FA(
+      email: email,
+      password: password,
+    );
+
+    result.fold(
+      (_) {},
+      (loginResult) {
+        if (loginResult.isComplete) {
+          _isAppLocked = false;
+          _authStateController.add(AuthState.authenticated);
+        }
+      },
+    );
+
+    return result;
+  }
+
+  /// Verify 2FA OTP to complete login
+  Future<Either<Failure, String>> verify2FACode({
+    required String otp,
+    String? tmpId,
+  }) async {
+    final result = await _frappeAuth.verify2FACode(otp: otp, tmpId: tmpId);
+
+    result.fold(
+      (_) {},
+      (_) {
+        _isAppLocked = false;
+        _authStateController.add(AuthState.authenticated);
+      },
+    );
+
+    return result;
+  }
+
+  /// Resend OTP to phone number
+  Future<Either<Failure, bool>> resendOtp({required String phone}) =>
+      _frappeAuth.resendOtp(phone: phone);
 
   // ==================== IAuthService Delegation ====================
 

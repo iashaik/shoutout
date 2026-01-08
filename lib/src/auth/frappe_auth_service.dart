@@ -24,12 +24,90 @@ class SocialLoginConfig {
   });
 }
 
+/// Configuration for OTP-based authentication
+class OtpAuthConfig {
+  /// Custom endpoint for generating/sending OTP
+  /// Default: null (uses Frappe's built-in SMS settings)
+  /// Example: 'myapp.api.auth.generate_otp'
+  final String? generateOtpMethod;
+
+  /// Custom endpoint for verifying OTP and logging in
+  /// Default: null (uses Frappe's built-in SMS settings)
+  /// Example: 'myapp.api.auth.verify_otp'
+  final String? verifyOtpMethod;
+
+  /// Default country code to prepend to phone numbers
+  /// Example: '+91' for India, '+1' for USA
+  final String? defaultCountryCode;
+
+  /// OTP length (for validation purposes)
+  final int otpLength;
+
+  const OtpAuthConfig({
+    this.generateOtpMethod,
+    this.verifyOtpMethod,
+    this.defaultCountryCode,
+    this.otpLength = 6,
+  });
+}
+
+/// Result of a login attempt that requires 2FA verification
+class TwoFactorAuthRequired {
+  /// Temporary ID for the 2FA session
+  final String tmpId;
+
+  /// Verification method (Email, SMS, OTP App)
+  final String method;
+
+  /// Prompt message to show the user
+  final String prompt;
+
+  /// Whether 2FA setup is complete
+  final bool setup;
+
+  const TwoFactorAuthRequired({
+    required this.tmpId,
+    required this.method,
+    required this.prompt,
+    required this.setup,
+  });
+
+  factory TwoFactorAuthRequired.fromJson(Map<String, dynamic> json) {
+    final verification = json['verification'] as Map<String, dynamic>? ?? {};
+    return TwoFactorAuthRequired(
+      tmpId: json['tmp_id']?.toString() ?? '',
+      method: verification['method']?.toString() ?? 'Email',
+      prompt: verification['prompt']?.toString() ??
+          'Please enter the verification code',
+      setup: verification['setup'] == true,
+    );
+  }
+}
+
+/// Login result that may require 2FA
+class LoginResult {
+  /// User ID if login was successful
+  final String? userId;
+
+  /// 2FA details if verification is required
+  final TwoFactorAuthRequired? twoFactorRequired;
+
+  /// Whether login is complete (no 2FA required)
+  bool get isComplete => userId != null && twoFactorRequired == null;
+
+  /// Whether 2FA verification is needed
+  bool get requires2FA => twoFactorRequired != null;
+
+  const LoginResult({this.userId, this.twoFactorRequired});
+}
+
 /// Frappe authentication service implementation
-/// Supports username/password login, API key authentication, and social login
+/// Supports username/password login, API key authentication, OTP, and social login
 class FrappeAuthService implements IFrappeAuthService, ISocialAuthService {
   final ShoutoutClient _client;
   final FlutterSecureStorage _secureStorage;
   final SocialLoginConfig? socialConfig;
+  final OtpAuthConfig otpConfig;
 
   // Storage keys
   static const String _keyAuthToken = 'frappe_auth_token';
@@ -38,6 +116,7 @@ class FrappeAuthService implements IFrappeAuthService, ISocialAuthService {
   static const String _keyApiKey = 'frappe_api_key';
   static const String _keyApiSecret = 'frappe_api_secret';
   static const String _keySessionId = 'frappe_session_id';
+  static const String _keyTmpId = 'frappe_tmp_id';
 
   // Auth state stream controller
   final StreamController<bool> _authStateController =
@@ -47,8 +126,10 @@ class FrappeAuthService implements IFrappeAuthService, ISocialAuthService {
     required ShoutoutClient client,
     FlutterSecureStorage? secureStorage,
     this.socialConfig,
+    OtpAuthConfig? otpConfig,
   })  : _client = client,
-        _secureStorage = secureStorage ?? const FlutterSecureStorage();
+        _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+        otpConfig = otpConfig ?? const OtpAuthConfig();
 
   @override
   Stream<bool> get authStateChanges => _authStateController.stream;
@@ -77,6 +158,58 @@ class FrappeAuthService implements IFrappeAuthService, ISocialAuthService {
     required String email,
     required String password,
   }) async {
+    final result = await loginWithPasswordAndHandle2FA(
+      email: email,
+      password: password,
+    );
+
+    return result.fold(
+      (failure) => Left(failure),
+      (loginResult) {
+        if (loginResult.requires2FA) {
+          // Return special failure indicating 2FA is required
+          return Left(
+            AuthenticationFailure(
+              message: loginResult.twoFactorRequired!.prompt,
+              code: 'TWO_FACTOR_REQUIRED',
+            ),
+          );
+        }
+        return Right(loginResult.userId!);
+      },
+    );
+  }
+
+  /// Login with password, handling 2FA if required
+  ///
+  /// Returns [LoginResult] which indicates whether login is complete
+  /// or if 2FA verification is needed.
+  ///
+  /// Example:
+  /// ```dart
+  /// final result = await authService.loginWithPasswordAndHandle2FA(
+  ///   email: 'user@example.com',
+  ///   password: 'password',
+  /// );
+  ///
+  /// result.fold(
+  ///   (failure) => showError(failure.message),
+  ///   (loginResult) {
+  ///     if (loginResult.requires2FA) {
+  ///       // Show OTP input screen
+  ///       final tfaInfo = loginResult.twoFactorRequired!;
+  ///       showOtpScreen(prompt: tfaInfo.prompt, method: tfaInfo.method);
+  ///     } else {
+  ///       // Login complete
+  ///       navigateToHome();
+  ///     }
+  ///   },
+  /// );
+  /// ```
+  Future<Either<Failure, LoginResult>> loginWithPasswordAndHandle2FA({
+    required String email,
+    required String password,
+  }) async {
     try {
       final response = await _client.dio.post(
         '/api/method/login',
@@ -86,7 +219,6 @@ class FrappeAuthService implements IFrappeAuthService, ISocialAuthService {
         },
         options: Options(
           contentType: Headers.formUrlEncodedContentType,
-          // Follow redirects and capture cookies
           followRedirects: false,
           validateStatus: (status) => status != null && status < 500,
         ),
@@ -94,38 +226,23 @@ class FrappeAuthService implements IFrappeAuthService, ISocialAuthService {
 
       if (response.statusCode == 200) {
         final data = response.data;
-        final message = data is Map ? data['message'] : data;
 
-        // Extract user info from response
-        String userId = email;
-        if (data is Map && data['full_name'] != null) {
-          userId = data['full_name'] as String;
+        // Check if 2FA is required
+        if (data is Map && data['verification'] != null) {
+          final twoFactorInfo = TwoFactorAuthRequired.fromJson(
+            Map<String, dynamic>.from(data),
+          );
+
+          // Store tmp_id for later verification
+          await _secureStorage.write(key: _keyTmpId, value: twoFactorInfo.tmpId);
+          // Also store email for the 2FA verification call
+          await _secureStorage.write(key: '${_keyTmpId}_user', value: email);
+
+          return Right(LoginResult(twoFactorRequired: twoFactorInfo));
         }
 
-        // Get session cookies if available
-        final cookies = response.headers['set-cookie'];
-        String? sessionId;
-        if (cookies != null && cookies.isNotEmpty) {
-          for (final cookie in cookies) {
-            if (cookie.contains('sid=')) {
-              final match = RegExp(r'sid=([^;]+)').firstMatch(cookie);
-              sessionId = match?.group(1);
-              break;
-            }
-          }
-        }
-
-        // Save session
-        await saveUserSession(
-          userId: email,
-          token: sessionId ?? email,
-          userData: data is Map ? Map<String, dynamic>.from(data) : null,
-        );
-
-        // Notify auth state change
-        _authStateController.add(true);
-
-        return Right(email);
+        // Login successful without 2FA
+        return _handleSuccessfulLogin(email, response);
       } else if (response.statusCode == 401) {
         return Left(AuthenticationFailure.invalidCredentials());
       } else {
@@ -156,31 +273,213 @@ class FrappeAuthService implements IFrappeAuthService, ISocialAuthService {
     }
   }
 
+  /// Verify 2FA OTP to complete login
+  ///
+  /// Call this after [loginWithPasswordAndHandle2FA] returns a [LoginResult]
+  /// with [requires2FA] = true.
+  ///
+  /// Example:
+  /// ```dart
+  /// final result = await authService.verify2FACode(otp: '123456');
+  /// result.fold(
+  ///   (failure) => showError(failure.message),
+  ///   (userId) => navigateToHome(),
+  /// );
+  /// ```
+  Future<Either<Failure, String>> verify2FACode({
+    required String otp,
+    String? tmpId,
+  }) async {
+    try {
+      // Get stored tmp_id if not provided
+      final storedTmpId = tmpId ?? await _secureStorage.read(key: _keyTmpId);
+      final storedUser = await _secureStorage.read(key: '${_keyTmpId}_user');
+
+      if (storedTmpId == null) {
+        return const Left(
+          AuthenticationFailure(
+            message: 'No pending 2FA verification found. Please login again.',
+            code: 'NO_PENDING_2FA',
+          ),
+        );
+      }
+
+      final response = await _client.dio.post(
+        '/api/method/login',
+        data: {
+          'usr': storedUser,
+          'otp': otp,
+          'tmp_id': storedTmpId,
+        },
+        options: Options(
+          contentType: Headers.formUrlEncodedContentType,
+          followRedirects: false,
+          validateStatus: (status) => status != null && status < 500,
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data;
+
+        // Check if still requiring verification (wrong OTP)
+        if (data is Map && data['verification'] != null) {
+          return const Left(
+            AuthenticationFailure(
+              message: 'Invalid verification code. Please try again.',
+              code: 'INVALID_OTP',
+            ),
+          );
+        }
+
+        // Clear stored tmp_id
+        await _secureStorage.delete(key: _keyTmpId);
+        await _secureStorage.delete(key: '${_keyTmpId}_user');
+
+        // Login successful
+        final result = await _handleSuccessfulLogin(storedUser ?? '', response);
+        return result.fold(
+          (failure) => Left(failure),
+          (loginResult) => Right(loginResult.userId!),
+        );
+      } else if (response.statusCode == 401) {
+        return const Left(
+          AuthenticationFailure(
+            message: 'Invalid verification code',
+            code: 'INVALID_OTP',
+          ),
+        );
+      } else {
+        final errorMessage = response.data is Map
+            ? (response.data['message'] ?? 'Verification failed')
+            : 'Verification failed';
+        return Left(AuthenticationFailure(message: errorMessage.toString()));
+      }
+    } on DioException catch (e) {
+      return Left(
+        ServerFailure(
+          message: e.message ?? '2FA verification failed',
+          statusCode: e.response?.statusCode,
+          originalError: e,
+        ),
+      );
+    } catch (e, stackTrace) {
+      return Left(
+        UnknownFailure(
+          message: '2FA verification failed: ${e.toString()}',
+          originalError: e,
+          stackTrace: stackTrace,
+        ),
+      );
+    }
+  }
+
+  /// Handle successful login response
+  Future<Either<Failure, LoginResult>> _handleSuccessfulLogin(
+    String email,
+    Response response,
+  ) async {
+    try {
+      final data = response.data;
+
+      // Extract user info from response
+      String userId = email;
+      if (data is Map && data['full_name'] != null) {
+        userId = data['full_name'] as String;
+      }
+
+      // Get session cookies if available
+      final cookies = response.headers['set-cookie'];
+      String? sessionId;
+      if (cookies != null && cookies.isNotEmpty) {
+        for (final cookie in cookies) {
+          if (cookie.contains('sid=')) {
+            final match = RegExp(r'sid=([^;]+)').firstMatch(cookie);
+            sessionId = match?.group(1);
+            break;
+          }
+        }
+      }
+
+      // Save session
+      await saveUserSession(
+        userId: email,
+        token: sessionId ?? email,
+        userData: data is Map ? Map<String, dynamic>.from(data) : null,
+      );
+
+      // Notify auth state change
+      _authStateController.add(true);
+
+      return Right(LoginResult(userId: email));
+    } catch (e, stackTrace) {
+      return Left(
+        UnknownFailure(
+          message: 'Failed to process login response: ${e.toString()}',
+          originalError: e,
+          stackTrace: stackTrace,
+        ),
+      );
+    }
+  }
+
   @override
   Future<Either<Failure, String>> loginWithOtp({
     required String phone,
     required String otp,
   }) async {
     try {
-      // Frappe's OTP verification endpoint
+      final formattedPhone = _formatPhoneNumber(phone);
+
+      // Use custom endpoint if configured, otherwise use default
+      final endpoint = otpConfig.verifyOtpMethod != null
+          ? '/api/method/${otpConfig.verifyOtpMethod}'
+          : '/api/method/frappe.core.doctype.sms_settings.sms_settings.verify_otp';
+
       final response = await _client.dio.post(
-        '/api/method/frappe.core.doctype.sms_settings.sms_settings.verify_otp',
+        endpoint,
         data: {
-          'mobile_no': phone,
+          'mobile_no': formattedPhone,
+          'phone': formattedPhone, // Some implementations use 'phone'
           'otp': otp,
         },
       );
 
       if (response.statusCode == 200) {
         final data = response.data;
-        final userId = data['message']?['user'] ?? phone;
+        final message = data['message'];
+
+        // Handle different response formats
+        String userId;
+        Map<String, dynamic>? userData;
+
+        if (message is Map) {
+          userId = message['user']?.toString() ??
+              message['email']?.toString() ??
+              formattedPhone;
+          userData = Map<String, dynamic>.from(message);
+        } else if (message is String) {
+          userId = message;
+        } else {
+          userId = formattedPhone;
+        }
+
+        // Get session cookies if available
+        final cookies = response.headers['set-cookie'];
+        String? sessionId;
+        if (cookies != null && cookies.isNotEmpty) {
+          for (final cookie in cookies) {
+            if (cookie.contains('sid=')) {
+              final match = RegExp(r'sid=([^;]+)').firstMatch(cookie);
+              sessionId = match?.group(1);
+              break;
+            }
+          }
+        }
 
         await saveUserSession(
           userId: userId,
-          token: userId,
-          userData: data['message'] is Map
-              ? Map<String, dynamic>.from(data['message'])
-              : null,
+          token: sessionId ?? userId,
+          userData: userData,
         );
 
         _authStateController.add(true);
@@ -188,14 +487,21 @@ class FrappeAuthService implements IFrappeAuthService, ISocialAuthService {
       } else {
         return Left(
           AuthenticationFailure(
-            message: response.data?['message'] ?? 'OTP verification failed',
+            message: response.data?['message']?.toString() ??
+                response.data?['exc']?.toString() ??
+                'OTP verification failed',
+            code: 'INVALID_OTP',
           ),
         );
       }
     } on DioException catch (e) {
+      final errorMessage = e.response?.data is Map
+          ? (e.response?.data['message']?.toString() ??
+              e.response?.data['exc']?.toString())
+          : null;
       return Left(
         ServerFailure(
-          message: e.message ?? 'OTP verification failed',
+          message: errorMessage ?? e.message ?? 'OTP verification failed',
           statusCode: e.response?.statusCode,
           originalError: e,
         ),
@@ -214,9 +520,19 @@ class FrappeAuthService implements IFrappeAuthService, ISocialAuthService {
   @override
   Future<Either<Failure, bool>> sendOtp({required String phone}) async {
     try {
+      final formattedPhone = _formatPhoneNumber(phone);
+
+      // Use custom endpoint if configured, otherwise use default
+      final endpoint = otpConfig.generateOtpMethod != null
+          ? '/api/method/${otpConfig.generateOtpMethod}'
+          : '/api/method/frappe.core.doctype.sms_settings.sms_settings.send_otp';
+
       final response = await _client.dio.post(
-        '/api/method/frappe.core.doctype.sms_settings.sms_settings.send_otp',
-        data: {'mobile_no': phone},
+        endpoint,
+        data: {
+          'mobile_no': formattedPhone,
+          'phone': formattedPhone, // Some implementations use 'phone'
+        },
       );
 
       if (response.statusCode == 200) {
@@ -224,15 +540,18 @@ class FrappeAuthService implements IFrappeAuthService, ISocialAuthService {
       } else {
         return Left(
           ServerFailure(
-            message: response.data?['message'] ?? 'Failed to send OTP',
+            message: response.data?['message']?.toString() ?? 'Failed to send OTP',
             statusCode: response.statusCode,
           ),
         );
       }
     } on DioException catch (e) {
+      final errorMessage = e.response?.data is Map
+          ? e.response?.data['message']?.toString()
+          : null;
       return Left(
         ServerFailure(
-          message: e.message ?? 'Failed to send OTP',
+          message: errorMessage ?? e.message ?? 'Failed to send OTP',
           statusCode: e.response?.statusCode,
           originalError: e,
         ),
@@ -246,6 +565,23 @@ class FrappeAuthService implements IFrappeAuthService, ISocialAuthService {
         ),
       );
     }
+  }
+
+  /// Format phone number with country code if configured
+  String _formatPhoneNumber(String phone) {
+    if (otpConfig.defaultCountryCode != null &&
+        !phone.startsWith('+') &&
+        !phone.startsWith('00')) {
+      return '${otpConfig.defaultCountryCode}$phone';
+    }
+    return phone;
+  }
+
+  /// Resend OTP to the same phone number
+  ///
+  /// Convenience method that calls [sendOtp] again
+  Future<Either<Failure, bool>> resendOtp({required String phone}) async {
+    return sendOtp(phone: phone);
   }
 
   @override
