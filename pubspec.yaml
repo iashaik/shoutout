@@ -1,6 +1,6 @@
 name: shoutout
 description: A robust Frappe API client for Flutter with built-in retry logic, fault tolerance, and authentication.
-version: 0.0.3
+version: 0.0.4
 homepage: https://github.com/yourusername/shoutout
 
 environment:

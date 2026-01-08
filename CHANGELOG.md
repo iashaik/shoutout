@@ -1,3 +1,87 @@
+## 0.0.4
+
+### 🚀 New Features: Document State Management, Advanced Queries & Child Tables
+
+This release adds powerful features for working with Frappe's document lifecycle, complex queries, and child table operations.
+
+**New Components:**
+
+- **Document State Management (`DocumentStateService`)**
+  - `submitDoc()` - Submit draft documents (docstatus 0 → 1)
+  - `cancelDoc()` - Cancel submitted documents (docstatus 1 → 2)
+  - `amendDoc()` - Create amended copy of cancelled documents
+  - `getDocStatus()` - Get current document status
+  - `canSubmit()`, `canCancel()`, `canAmend()` - Check allowed transitions
+  - `getAmendments()` - Get all amendments of a document
+  - `getAmendedFrom()` - Get original document name
+  - `getByStatus()` - Query documents by docstatus
+
+- **DocStatus Enum**
+  - Type-safe representation of Frappe's docstatus field
+  - `DocStatus.draft` (0), `DocStatus.submitted` (1), `DocStatus.cancelled` (2)
+  - Helper methods: `canSubmit`, `canCancel`, `canAmend`, `isEditable`
+  - Factory constructor `DocStatus.fromValue(int)`
+
+- **Advanced Query Service (`QueryService`)**
+  - `getCount()` - Efficient document counting with filters
+  - `getValue()` - Get single field value from a document
+  - `getValues()` - Get multiple field values at once
+  - `search()` - Full-text search with field targeting
+  - `exists()` - Check if document exists
+  - `existsWhere()` - Check if any document matches filters
+  - Aggregation methods: `sum()`, `min()`, `max()`, `avg()`
+  - `distinct()` - Get unique values of a field
+
+- **Enhanced QueryBuilder with OR Filters**
+  - `orWhere()`, `orWhereNot()` - OR equality filters
+  - `orWhereLike()`, `orWhereIn()`, `orWhereNotIn()` - OR pattern/list filters
+  - `orWhereNull()`, `orWhereNotNull()` - OR null checks
+  - `orWhereBetween()` - OR range filters
+  - `orWhereGreaterThan()`, `orWhereLessThan()` - OR comparison filters
+  - `orGroup()` - Add FilterGroup as OR conditions
+  - `search()` - Quick search term filter
+
+- **Child Table Support in QueryBuilder**
+  - `withChildren()` - Include child table in response
+  - `childField()` - Select specific child table fields
+  - `whereChild()` - Filter by child table field
+  - `whereChildOp()` - Filter child table with custom operator
+
+- **Child Table Service (`ChildTableService`)**
+  - `addChild()` / `addChildren()` - Add rows to child table
+  - `updateChild()` / `updateChildByIndex()` - Update child rows
+  - `removeChild()` / `removeChildByIndex()` - Remove child rows
+  - `getChildren()` / `getChild()` / `getChildByIndex()` - Get child rows
+  - `setChildren()` - Replace all child rows
+  - `clearChildren()` - Remove all child rows
+  - `reorderChildren()` - Reorder child rows by name list
+  - `moveChildUp()` / `moveChildDown()` - Move single row up/down
+  - `getChildCount()` - Count child rows
+
+- **New Failure Type**
+  - `DocumentStateFailure` - For invalid state transitions
+  - Factory constructors: `alreadySubmitted`, `alreadyCancelled`, `cannotSubmit`, `cannotCancel`, `cannotAmend`
+  - Includes `currentStatus`, `targetStatus`, `doctype`, `documentName`
+
+**Enhanced Client:**
+- `getList()` now supports `orFilters` parameter
+- New `getListWithQuery()` method accepts `QueryBuilder` directly
+
+**Breaking Changes:**
+- None! All new features are additive and backward compatible
+
+**Bug Fixes:**
+- Fixed SDK version constraint for broader compatibility (^3.5.0)
+
+**Documentation:**
+- Updated README with comprehensive examples for all new features
+- Added Document State Management section
+- Added Advanced Query Service section
+- Added OR Filters section
+- Added Child Table Operations section
+
+---
+
 ## 0.0.3
 
 ### 🎉 Major Features: Complete Offline-First & Advanced Features
