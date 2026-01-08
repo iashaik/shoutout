@@ -7,6 +7,7 @@ import '../config/shoutout_config.dart';
 import '../exceptions/shoutout_exception.dart';
 import '../interceptors/connectivity_interceptor.dart';
 import '../interceptors/frappe_auth_interceptor.dart';
+import '../query/query_builder.dart';
 
 /// Main Shoutout client for interacting with Frappe APIs
 class ShoutoutClient {
@@ -169,6 +170,7 @@ class ShoutoutClient {
     String doctype, {
     List<String>? fields,
     Map<String, dynamic>? filters,
+    List<List<dynamic>>? orFilters,
     int? limitStart,
     int? limitPageLength,
     String? orderBy,
@@ -182,6 +184,9 @@ class ShoutoutClient {
       }
       if (filters != null) {
         queryParams['filters'] = filters;
+      }
+      if (orFilters != null && orFilters.isNotEmpty) {
+        queryParams['or_filters'] = orFilters;
       }
       if (limitStart != null) {
         queryParams['limit_start'] = limitStart;
@@ -208,6 +213,43 @@ class ShoutoutClient {
     } on DioException catch (e, stackTrace) {
       throw e.toShoutoutException();
     }
+  }
+
+  /// Get list of Frappe documents using a QueryBuilder
+  ///
+  /// Provides a fluent API for building complex queries with
+  /// AND/OR filters, child tables, and pagination.
+  ///
+  /// Example:
+  /// ```dart
+  /// final query = QueryBuilder('Item')
+  ///   .where('disabled', 0)
+  ///   .orWhere('item_group', 'Electronics')
+  ///   .orWhere('item_group', 'Computers')
+  ///   .select(['name', 'item_name', 'standard_rate'])
+  ///   .orderBy('modified', descending: true)
+  ///   .limit(20);
+  ///
+  /// final items = await client.getListWithQuery<Map<String, dynamic>>(query);
+  /// ```
+  Future<List<T>> getListWithQuery<T>(
+    QueryBuilder query, {
+    Options? options,
+  }) async {
+    final params = query.build();
+
+    return getList<T>(
+      params['doctype'] as String,
+      fields: params['fields'] as List<String>?,
+      filters: params['filters'] != null
+          ? {'filters': params['filters']}
+          : null,
+      orFilters: params['or_filters'] as List<List<dynamic>>?,
+      limitStart: params['limit_start'] as int?,
+      limitPageLength: params['limit_page_length'] as int?,
+      orderBy: params['order_by'] as String?,
+      options: options,
+    );
   }
 
   /// Create a new Frappe document

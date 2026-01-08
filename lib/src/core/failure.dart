@@ -184,3 +184,108 @@ class UnknownFailure extends Failure {
     super.stackTrace,
   });
 }
+
+/// Document state transition error
+/// Thrown when attempting invalid state transitions (e.g., submit already submitted doc)
+class DocumentStateFailure extends Failure {
+  /// Current docstatus of the document
+  final int? currentStatus;
+
+  /// Target docstatus that was attempted
+  final int? targetStatus;
+
+  /// The doctype of the document
+  final String? doctype;
+
+  /// The name of the document
+  final String? documentName;
+
+  const DocumentStateFailure({
+    required super.message,
+    this.currentStatus,
+    this.targetStatus,
+    this.doctype,
+    this.documentName,
+    super.code = 'DOCUMENT_STATE_ERROR',
+    super.originalError,
+    super.stackTrace,
+  });
+
+  /// Factory for "already submitted" error
+  factory DocumentStateFailure.alreadySubmitted(String doctype, String name) {
+    return DocumentStateFailure(
+      message: '$doctype $name is already submitted',
+      currentStatus: 1,
+      targetStatus: 1,
+      doctype: doctype,
+      documentName: name,
+      code: 'ALREADY_SUBMITTED',
+    );
+  }
+
+  /// Factory for "already cancelled" error
+  factory DocumentStateFailure.alreadyCancelled(String doctype, String name) {
+    return DocumentStateFailure(
+      message: '$doctype $name is already cancelled',
+      currentStatus: 2,
+      targetStatus: 2,
+      doctype: doctype,
+      documentName: name,
+      code: 'ALREADY_CANCELLED',
+    );
+  }
+
+  /// Factory for "cannot submit" error (not in draft state)
+  factory DocumentStateFailure.cannotSubmit(
+    String doctype,
+    String name,
+    int currentStatus,
+  ) {
+    return DocumentStateFailure(
+      message: 'Cannot submit $doctype $name: document is not in draft state',
+      currentStatus: currentStatus,
+      targetStatus: 1,
+      doctype: doctype,
+      documentName: name,
+      code: 'CANNOT_SUBMIT',
+    );
+  }
+
+  /// Factory for "cannot cancel" error (not in submitted state)
+  factory DocumentStateFailure.cannotCancel(
+    String doctype,
+    String name,
+    int currentStatus,
+  ) {
+    return DocumentStateFailure(
+      message:
+          'Cannot cancel $doctype $name: document is not in submitted state',
+      currentStatus: currentStatus,
+      targetStatus: 2,
+      doctype: doctype,
+      documentName: name,
+      code: 'CANNOT_CANCEL',
+    );
+  }
+
+  /// Factory for "cannot amend" error (not in cancelled state)
+  factory DocumentStateFailure.cannotAmend(
+    String doctype,
+    String name,
+    int currentStatus,
+  ) {
+    return DocumentStateFailure(
+      message:
+          'Cannot amend $doctype $name: document is not in cancelled state',
+      currentStatus: currentStatus,
+      targetStatus: 0,
+      doctype: doctype,
+      documentName: name,
+      code: 'CANNOT_AMEND',
+    );
+  }
+
+  @override
+  List<Object?> get props =>
+      [...super.props, currentStatus, targetStatus, doctype, documentName];
+}

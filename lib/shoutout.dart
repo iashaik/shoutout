@@ -40,8 +40,14 @@ export 'src/auth/secure_auth_service.dart';
 export 'src/file/file_transfer.dart';
 export 'src/file/file_manager.dart';
 
-// Query Builder
+// Query Builder & Query Service
 export 'src/query/query_builder.dart';
+export 'src/query/query_service.dart';
+
+// Document Management
+export 'src/document/doc_status.dart';
+export 'src/document/document_state_service.dart';
+export 'src/document/child_table_service.dart';
 
 // Real-time Support
 export 'src/realtime/realtime_client.dart';
